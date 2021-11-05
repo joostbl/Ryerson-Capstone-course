@@ -1,0 +1,165 @@
+---
+title: "Wordcloud"
+author: "Joost Bloos"
+date: "04/11/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#https://cran.r-project.org/web/packages/lexicon/index.html
+#install.packages("lexicon", dependencies = TRUE)
+#https://cran.r-project.org/web/packages/tm/index.html
+#install.packages("tm", dependencies = TRUE)
+#https://cran.r-project.org/web/packages/RWeka/index.html
+#install.packages("RWeka", dependencies = TRUE)
+#https://cran.r-project.org/web/packages/textstem/index.html
+#install.packages("textstem", dependencies = TRUE)
+#https://cran.r-project.org/web/packages/textclean/index.html
+#install.packages("textclean", dependencies = TRUE)
+
+#install.packages("dplyr")
+#install.packages("quanteda")
+#install.packages("textstem")
+#install.packages("text2vec")
+#install.packages("namespace")
+#install.packages("stopwords")
+
+#Loading the packages to the current workspace
+lstPackages <- c('lexicon','tm','RWeka','textstem','textclean')
+
+lapply(lstPackages, library, character.only = TRUE)
+
+library(quanteda)
+library(stringr)
+library(dplyr)
+library(wordcloud)
+library(textstem)
+
+#For successful knitting of document in pdf:
+#tinytex::install_tinytex()
+```
+
+```{r}
+#read data set Tweets May 16, 2020: Covid related hastags as per project document.
+
+data_set_may <- read.csv("corona_tweets_59 May 2020", header = T, sep = ",")
+```
+
+```{r}
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+set.seed(1000)
+data_may <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+str(data_may)
+```
+
+```{r}
+#Add column index to transform file to format appropriate for corpus
+data_may$index <- 1:nrow(data_may)
+str(data_may)
+```
+
+
+
+```{r}
+#set of Corpus using VectorSource() and VCorpus
+listofDocs <- tm::VectorSource(data_may$text)
+listofDocs$Names <- names(data_may$index)
+corporaData <- tm::VCorpus(listofDocs)
+#use VCorpus as it allows for customized tokenization required for n-gram analysis later on in the code.Initially, in my code used Corpus but has fixed tokenization, so ran into troubles apply the n-gram term matrix
+```
+
+```{r}
+#Lemmatization is the process of reducing a word to its base form while incorporating information about the word’s part of speech (POS) through morphological analysis.
+#Utilizing Thesaurus: lexicon
+for(i in 1:1000)
+{
+    corporaData[[i]]$content <- 
+    textstem::lemmatize_strings(corporaData[[i]]$content, 
+                                dictionary = lexicon::hash_lemmas)
+}
+
+#Stemming removes a word’s suffix (ending), such as es, s, ing, ed, y, based on an heuristic algorithm. After the suffix is removed, a term is reduced to its base, root or stem word
+
+corporaData <- tm::tm_map(corporaData, stemDocument) 
+
+#COULDN'T RESOLVE KNITTING ERROR: error in match.fun(FUN) : object 'stemdocument' not found
+
+#remove words that don't add to context of Tweet, but more so are terms that don't distinguish well between Tweets for effective querrying when looking for similar Tweets based on search terms 
+#Stopword Removal
+
+corporaData <- tm::tm_map(corporaData, removeWords, stopwords('english')) 
+
+#Other Pre-processing Steps: Punctuation Marks, Extra Whitespaces, etc 
+corporaData <- tm::tm_map(corporaData, content_transformer(tolower))
+corporaData <- tm::tm_map(corporaData, removePunctuation,  
+                      ucp = TRUE, 
+                      preserve_intra_word_contractions = FALSE,
+                      preserve_intra_word_dashes = FALSE)
+corporaData <- tm::tm_map(corporaData, removeNumbers) 
+corporaData <- tm::tm_map(corporaData, stripWhitespace)
+
+#moving to end as it created better results:
+corporaData <- tm::tm_map(corporaData, removeWords, stopwords('SMART')) #error: source not found, wasn't able to resolve this, but stopwords are being removed despite error as I tested on the wordcloud.
+
+
+corporaData[[1]]$content
+```
+
+```{r}
+#data preprocessing or text normalization:
+#Social media text may need additional cleansing to remove links, hashtags, retweets, social media handles, before more general punctuation is handled
+
+#Creating another corpus reference to be used for wordcloud
+
+tweets_corpus_may <-corporaData
+```
+
+```{r} 
+#I wanted to do other clean-up of terms like "http" and "amp", but kept getting error: Error in UseMethod("content", x) : no applicable method for 'content' applied to an object of class "character"
+
+#to remove other characters as per output wordcloud:
+toSpace <- function(x, pattern) gsub(pattern, " ", x)
+tweets_corpus_may <- tm_map(tweets_corpus_may, toSpace, "ÿ") 
+tweets_corpus_may <- tm_map(tweets_corpus_may, toSpace, "amp") 
+tweets_corpus_may <- tm_map(tweets_corpus_may, toSpace, "”") 
+tweets_corpus_may <- tm_map(tweets_corpus_may, toSpace, "Itâ€™") 
+tweets_corpus_may <- tm_map(tweets_corpus_may, toSpace, "â") 
+```
+
+```{r}
+#I tried running the code above and below but getting the following error: Error in UseMethod("inspect", x) : no applicable method for 'inspect' applied to an object of class "character"
+#After research, it appears that the code is rewriting the object to another data type. Then I used corpus <- tm_map(corpus, PlainTextDocument), which worked for the wordcloud, but not anymore for the TermDocumentMatrix() function. I will present the wordcloud based on separate preprocessing steps on the corpus.
+
+# remove retweets
+tweets_corpus_may <- tm_map(tweets_corpus_may, (function(x) gsub('\\b+RT', " ", x)))
+# remove mentions
+tweets_corpus_may <- tm_map(tweets_corpus_may, (function(x) gsub('@\\S+', " ", x)))
+# remove hashtags
+tweets_corpus_may <- tm_map(tweets_corpus_may, (function(x) gsub('#\\S+', " ", x)))
+
+# remove links
+tweets_corpus_may <- tm_map(tweets_corpus_may, (function(x) gsub("http[^[:space:]]*", " ", x))) #doubled up this one to remove "http" as frequent word as it kept reappearing in the wordcloud...
+
+#For sentiment analysis only: https://rpubs.com/chelseyhill/669117 not all preprocessing steps appropriate for sentiment analysis, check.
+```
+
+```{r}
+#to correct error message to apply correct data type after function "tolower"
+tweets_corpus_may_worldcloud <- tm_map(tweets_corpus_may, PlainTextDocument) 
+```
+
+```{r}
+#Various world clouds min and max term frequency adjusted:
+wordcloud(tweets_corpus_may_worldcloud, max.words = 30, scale = c(8, .5), colors = topo.colors(n=30), random.color = TRUE)
+
+# There are two words in particular "https" and "amp" that i was able to remove while fine tune the pre-processing and normalization step with the codes below. However, this created errors while 
+```
+```{r}
+wordcloud(tweets_corpus_may_worldcloud, min.freq = 75, max.words = 30, scale = c(8, 0.5), colors = topo.colors(n=30), random.color = TRUE)
+```
+
+
