@@ -1,0 +1,245 @@
+---
+title: "Describing data set May 2020"
+author: "Joost Bloos"
+date: "06/11/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+#install.packages("ISwR")
+#install.packages("dplyr") # includes ggplot
+#install.packages("ggplot")
+#install.packages("ggplot2")
+#install.packages("twitteR")
+#install.packages("tidyr")
+#install.packages("tidyverse")
+#install.packages("ggmap")
+#install.packages("sf")
+#install.packages("mapview")
+#install.packages("maps")
+#install.packages("magrittr")
+#install.packages("rgeos")
+#install.packages("revgeo")
+#install.packages("NLP")
+
+#install.packages(c("cowplot", "googleway", "ggplot2", "ggplot", "ggrepel", "ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata", "dplyr", "twitteR", "tidyverse", "ggmap", "mapview", "maps", "rgeos", "revgeo", "NLP"))
+
+
+library(dplyr)
+library(tm)
+library(ISwR)
+library(twitteR)
+library(tidyr)
+library(tidyverse)
+library(ggmap)
+library(mapview)
+library("rnaturalearth")
+library("rnaturalearthdata")
+library(devtools)
+
+library(devtools)
+install_github('mhudecheck/revgeo')
+
+library(revgeo)
+
+
+
+```
+
+
+```{r}
+data1 <- read.csv("corona_tweets_59 May 2020", sep=",", stringsAsFactors = F, na.strings = c("","NA"))
+```
+
+```{r}
+#brief description of original hydrated data set May 2020:
+str(data1) #shows number of observation out of 35 variables
+head(data1) # most informative
+summary(data1) #not of much information as is mostly text in data set
+```
+
+
+```{r}
+#number of record that include a value for fields: user_location,coordinates,place: This fields could be applicable to build a strata by location and degree of urbanization.
+length(data1$user_location)-length(which(is.na(data1$user_location)))
+length(data1$coordinates)-length(which(is.na(data1$coordinates)))
+length(data1$place)-length(which(is.na(data1$place)))
+```
+
+```{r}
+#Ti inspect the appropriateness for strata building
+
+#print(data1$user_location) #best option as has least amount of NA, but needs to clean up list city, country for only to include city name.
+head(data1$user_location)
+
+#print(data1$coordinates) #cleanest list with data points
+head(data1$coordinates)
+
+#print(data1$place)
+head(data1$place)
+
+```
+
+```{r}
+#distribution of the number of characters in the data set attribute text / tweets content
+
+ggplot(data = data1, aes(x = nchar(text))) + geom_density(size = 2) + geom_vline(xintercept = 280) + scale_x_continuous("Number of Characters") + xlim(0,450)
+
+#This is a density graph : Computes and draws kernel density estimate, which is a smoothed version of the histogram. This is a useful alternative to the histogram for continuous data that comes from an underlying smooth distribution.
+
+#Conclusion: max number of characters per tweet is set at 280 by Twitter as can also been seen in the graph. However, some tweets have more than 280 characters which may be because of special characters for example: ampersands (&) which only counts as one character but comes through as their HTML equivalent (&amp;) which has four characters 
+
+#Note: to remove scientific numbering , first create object p <- ggplot()
+# p + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+```
+
+```{r}
+# showing count of retweets in data set
+ggplot(data = data1, aes(x = retweet_count)) + geom_density(size = 2) + xlim(0,100)
+
+#Conslusion: only a few tweets are retweeted frequently.
+
+```
+
+
+```{r}
+#split attribute Coordinates into two columns
+CoordinateDF <- data.frame(x = data1$coordinates)
+
+SplitCoordinate <- CoordinateDF %>% separate(x, c("long","lat"), sep = "([,])")
+
+```
+
+```{r}
+#remove NAs
+CoordinatesremoveNA <- na.omit(SplitCoordinate)
+
+CoordinatesremoveNA$long <- as.numeric(CoordinatesremoveNA$long)
+CoordinatesremoveNA$lat <- as.numeric(CoordinatesremoveNA$lat)
+```
+
+```{r}
+#building a world map of countries.
+#Source: https://r-spatial.org/r/2018/10/25/ggplot2-sf.html#:~:text=This%20call%20nicely%20introduces%20the%20structure%20of%20a,subsequent%20line%20correspond%20to%20another%20layer%20or%20scale.
+
+library(ggplot2)
+theme_set(theme_bw())
+library(sf)
+
+library("rnaturalearth")
+library("rnaturalearthdata")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+#plotting data set to see geographical spread
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = CoordinatesremoveNA, aes(x = long, y = lat), size = 4, 
+             shape = 23, fill = "darkred") 
+# Zoom in by adding: + coord_sf(xlim = c(-88, -78), ylim = c(24.5, 33), expand = FALSE)
+
+#save graph to PDF:
+ggsave("map.pdf")
+
+```
+
+
+```{r}
+#show table with country names using photon
+
+
+#install.packages('revgeo')
+
+#library(devtools)
+#install_github('mhudecheck/revgeo')
+
+#library(revgeo)
+
+#start <- Sys.time()
+#This line do all the reverse geocoding using Photon as a provider
+#results<-revgeo(longitude=CoordinatesremoveNA$long, 
+#                latitude=CoordinatesremoveNA$lat, 
+#                provider = 'photon', output="frame")
+
+#end <- Sys.time()
+
+#str(results)
+
+```
+
+```{r}
+#save object, results.
+#saveRDS(results, file = "results.Rds")
+```
+
+```{r}
+#getwd()
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+```
+
+```{r}
+#load object results
+
+
+results <- readRDS(file = "results.Rds")
+str(results)
+```
+
+
+```{r}
+#Create list frequency by city
+
+install.packages("stats")
+
+#aggregate(results$city, by=list(results$city), FUN=length)
+res <- aggregate(results$city, by=list(results$city), FUN=length)
+#head(res, 40)
+#res[order(res$x, decreasing = TRUE),]
+
+
+
+
+```
+
+```{r}
+#Create a table and graph with more than 10 tweets per city
+# save as dataframe, then plot frequency in ggplot
+Locations <- data.frame(res[order(res$x, decreasing = TRUE),])
+str(Locations)
+Locations$x = as.numeric(Locations$x)
+length(Locations$x) #out of 1,332 coordinates (long,lat), only 571 returned with a city name including 175 "City Not Found"
+
+newdf <- subset(Locations, x > 10)
+newdf
+
+ggplot(newdf,aes(x=Group.1, y=x)) + geom_bar(stat = 'identity') + scale_y_continuous(limits = c(0, 200)) + theme(axis.text.x = element_text(angle = 60, hjust = 1)) 
+#+ scale_x_discrete(name ='x')
+```
+
+
