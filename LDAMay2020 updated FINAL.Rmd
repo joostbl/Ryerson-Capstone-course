@@ -1,0 +1,299 @@
+---
+title: "DTM and LDA"
+author: "Joost Bloos"
+date: "05/11/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+---
+title: "DTM and LDA"
+author: "Joost Bloos"
+date: "04/11/2021"
+output: pdf_document
+---
+
+#```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("lexicon", dependencies = TRUE)
+#install.packages("tm", dependencies = TRUE)
+#install.packages("RWeka", dependencies = TRUE)
+#install.packages("textstem", dependencies = TRUE)
+#install.packages("textclean", dependencies = TRUE)
+#install.packages("dplyr")
+#install.packages("quanteda")
+#install.packages("textstem")
+#install.packages("text2vec")
+#install.packages("namespace")
+#install.packages("stopwords")
+#install.packages("pairheatmap")
+#install.packages("LDAvis")
+#install.packages("servr")
+
+
+#Loading the packages to the current workspace
+lstPackages <- c('lexicon','tm','RWeka','textstem','textclean')
+lapply(lstPackages, library, character.only = TRUE)
+library(quanteda)
+library(stringr)
+library(dplyr)
+library(wordcloud)
+library(textstem)
+library(pairheatmap)
+library(LDAvis)
+
+#For successful knitting of document in pdf:
+#tinytex::install_tinytex()
+```
+
+```{r}
+#read data set Tweets May 16, 2020: Covid related hastags as per project document.
+getwd()
+data_set_may <- read.csv("corona_tweets_59 May 2020", header = T, sep = ",")
+```
+
+```{r}
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+set.seed(1000)
+rawData <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+#str(rawData)
+```
+
+```{r}
+#Add column id to line up with lab script and transform file to format appropriate for corpus
+rawData$id <- 1:nrow(rawData)
+#str(rawData)
+```
+
+```{r}
+# replace header "text" to "transcript" to line up with lab script
+
+rawData$transcript <- rawData$text
+#str(rawData)
+```
+
+```{r}
+numberofDocs <- length(rawData$id)
+rawData$id <- paste0("Doc", c(1:numberofDocs))
+#str(rawData)
+```
+
+```{r}
+#set of Corpus using VectorSource() and VCorpus
+listofDocs <- tm::VectorSource(rawData$transcript)
+listofDocs$Names <- names(rawData$id)
+corporaData <- tm::VCorpus(listofDocs)
+
+#use VCorpus as it allows for customized tokenization required for n-gram analysis later on in the code.Initially, in my code used Corpus but has fixed tokenization, so ran into troubles apply the n-gram term matrix
+```
+
+```{r}
+#Lemmatization is the process of reducing a word to its base form while incorporating information about the word’s part of speech (POS) through morphological analysis.
+
+#Utilizing Thesaurus: lexicon
+for(i in 1:1000)
+{
+    corporaData[[i]]$content <- 
+    textstem::lemmatize_strings(corporaData[[i]]$content, 
+                                dictionary = lexicon::hash_lemmas)
+}
+
+#Stemming removes a word’s suffix (ending), such as es, s, ing, ed, y, based on an heuristic algorithm. After the suffix is removed, a term is reduced to its base, root or stem word
+
+corporaData <- tm::tm_map(corporaData, stemDocument) 
+
+#COULDN'T RESOLVE KNITTING ERROR: error in match.fun(FUN) : object 'stemdocument' not found
+
+#remove words that don't add to context of Tweet, but more so are terms that don't distinguish well between Tweets for effective querrying when looking for similar Tweets based on search terms 
+#Stopword Removal
+
+corporaData <- tm::tm_map(corporaData, removeWords, stopwords('english')) 
+corporaData <- tm::tm_map(corporaData, removeWords, stopwords('SMART'))
+
+#Other Pre-processing Steps: Punctuation Marks, Extra Whitespaces, etc 
+corporaData <- tm::tm_map(corporaData, content_transformer(tolower))
+corporaData <- tm::tm_map(corporaData, removePunctuation,  
+                      ucp = TRUE, 
+                      preserve_intra_word_contractions = FALSE,
+                      preserve_intra_word_dashes = FALSE)
+corporaData <- tm::tm_map(corporaData, removeNumbers) 
+corporaData <- tm::tm_map(corporaData, stripWhitespace)
+
+corporaData[[1]]$content
+```
+
+```{r}
+# Create a uni-gram Term Document Matrix, #output shows terms for document 1 and frequency in other documents, showing 10 terms and 10 documents.Sparsity is high.
+
+#output doesn't look right to me, there is something not right with the preprocessed corpus
+term.doc.matrix.1g <- tm::TermDocumentMatrix(corporaData)
+tm::inspect(term.doc.matrix.1g[1:10,1:10])
+```
+
+```{r}
+# Represent TDM in a matrix format and display its dimensions. Output shows for each term in every doc, the number of occurrences of the term within the corpus.
+term.doc.matrix.unigram <- as.matrix(term.doc.matrix.1g)
+dim(term.doc.matrix.unigram)
+#head(term.doc.matrix.unigram)
+```
+
+```{r}
+# Create a bi-gram Term Document Matrix
+tokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min=2, max=2))
+term.doc.matrix.2g <- tm::TermDocumentMatrix(corporaData, control = list(tokenize=tokenizer))
+tm::inspect(term.doc.matrix.2g[1:10,1:10])
+```
+
+```{r}
+# Represent TDM in a matrix format and display its dimensions
+term.doc.matrix.bigram <- as.matrix(term.doc.matrix.2g)
+dim(term.doc.matrix.bigram)
+#head(term.doc.matrix.bigram)
+```
+
+
+```{r}
+
+#Getting error: subscript out of bounds?? results in zero terms out of 1000 documents
+
+# Reduce the dimension of the TDM uni-gram matrix
+term.doc.matrix.1g <- tm::removeSparseTerms(term.doc.matrix.1g, 0.8)
+#tm::inspect(term.doc.matrix.1g[1:10,1:10])
+
+# Represent the TDM as a regular matrix
+#term.doc.matrix.unigram <- as.matrix(term.doc.matrix.1g)
+#dim(term.doc.matrix.unigram)
+#head(term.doc.matrix.unigram)
+```
+
+```{r}
+#Getting error: subscript out of bounds?? results in zero terms out of 1000 documents
+
+# Reduce the dimension of the TDM bi-gram matrix
+term.doc.matrix.2g <- tm::removeSparseTerms(term.doc.matrix.2g, 0.8)
+#tm::inspect(term.doc.matrix.2g[1:10,1:10])
+
+# Represent the TDM as a regular matrix
+#term.doc.matrix.bigram <- as.matrix(term.doc.matrix.2g)
+#dim(term.doc.matrix.bigram)
+#head(term.doc.matrix.bigram)
+```
+
+```{r}
+#Normalization
+# Declaring weights (TF-IDF variants)
+tf.idf.weights <- function(tf.vec) {
+# Computes tfidf weights from term frequency vector
+  n.docs <- length(tf.vec)
+  doc.frequency <- length(tf.vec[tf.vec > 0])
+  weights <- rep(0, length(tf.vec))
+  relative.frequency <- tf.vec[tf.vec > 0] / sum(tf.vec[tf.vec > 0])
+  weights[tf.vec > 0] <- relative.frequency *
+  log10(1 + n.docs/doc.frequency)
+  return(weights)
+}
+```
+
+```{r}
+#Compute the TF-IDF (unigram)
+tfidf.matrix.uni <- t(apply(as.matrix(term.doc.matrix.unigram), 1,
+FUN = function(row) {tf.idf.weights(row)}))
+
+colnames(tfidf.matrix.uni) <- rawData$id
+#head(tfidf.matrix.uni)
+dim(tfidf.matrix.uni)
+```
+
+```{r}
+#Compute the TF-IDF (bigram)
+tfidf.matrix.bi <- t(apply(as.matrix(term.doc.matrix.bigram), 1,
+FUN = function(row) {tf.idf.weights(row)}))
+colnames(tfidf.matrix.bi) <- rawData$id
+#head(tfidf.matrix.bi)
+dim(tfidf.matrix.bi)
+```
+
+```{r}
+# index ranges 0 to 1 where 1 means exactly the same and lesser values indicate high, intermediate or low similarity
+#Compute Cosine Similarity indices for the uni-gram TDM
+c.similarity.matrix.uni <-
+text2vec::sim2(t(tfidf.matrix.uni), method = 'cosine')
+```
+
+```{r}
+#Compute Cosine Similarity Indices for the bi-gram TDM
+c.similarity.matrix.bi <-
+text2vec::sim2(t(tfidf.matrix.bi), method = 'cosine')
+```
+
+```{r}
+#Display Ranked Lists for last tweet in sample
+sort(c.similarity.matrix.uni[1000, ], decreasing = TRUE)[1:1000]  
+ 
+sort(c.similarity.matrix.bi[1000, ], decreasing = TRUE)[1:1000]
+```
+
+```{r}
+#heatmap not informative, too many datapoints
+
+#heatmap(c.similarity.matrix.uni[, ])
+#heatmap(c.similarity.matrix.bi[, ])
+
+#pairheatmap(c.similarity.matrix.uni[,], c.similarity.matrix.bi[,], colorStyle="s3")
+
+```
+
+```{r}
+#LDA - topic relevance
+dtm = as(term.doc.matrix.bigram, "dgTMatrix")
+
+lda_model = text2vec::LDA$new(n_topics = 6, doc_topic_prior = 0.1, topic_word_prior = 0.01)
+
+doc_topic_distr = lda_model$fit_transform(x = dtm, n_iter = 1000, 
+                          convergence_tol = 0.001, n_check_convergence = 25, 
+                          progressbar = TRUE)
+```
+
+```{r}
+#plotting results
+barplot(doc_topic_distr[1, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_topic_distr))
+
+lda_model$get_top_words(n = 6, topic_number = c(1L, 3L, 6L), lambda = 1)
+
+
+lda_model$get_top_words(n = 6, topic_number = c(1L, 3L, 6L), lambda = 0.2)
+
+lda_model$plot()
+
+```
+
+
+
