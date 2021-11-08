@@ -29,3 +29,5 @@ F) Emoji sentiment analysis FINAL, this script provides a sentiment analysis bas
 
 
 Important Note: the scripts presented concentrate on the May 2020 data set. Once the LDA scripted is "debugged" for bigram DTM in file LDAMAY2020, as described above, the September 2021 dataset can be loaded, processed, and output can be compared. However, I wsn't successful in debugging, as I believe there is an issue with the format the corpus is transformed when pre-processed/cleansed. Reducing the number of pre-processed steps lead to unclear topic latency in teh LDA analysis / graph... I believe further cleansing is needed as the tweet data ($text) is very "sloppy" with all sorts of terms i.e. "http", "&amp", etc.
+
+Important note: I wasn't successful in applying the carnet package to script a confusion matrx to the LDA topic results, so i will need to better understand how to determine precision and recall with a sample size of 1,000 tweets vs 24 docs as per the lab in module 10. 
