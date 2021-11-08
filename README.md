@@ -4,6 +4,8 @@ Covid-19 related topics and sentiments in english Twitter tweets. Compared at be
 
 Approach for data analysis: to determine a base for data-analysis, I developed a corpus and topic analysis by taking a sample of 1,000 docs/tweets out of the more 2.3 million Covid tweets in the original data set from IEEE. Main reason fro this was to reduce processing and system time, as I run into memory issues on my computer.
 
+Data set uploaded: rawData.csv includes the hydrated tweets data set for May 16, 2020 from IEEE after taking a sample of size 1,000 
+
 Scripts uploaded:
 
 A) Describing data set FINAL. This script that describes the hydrated tweets data set for May 16, 2020 from IEEE. string information is provided including frequency of relevant fields for strata including "coordinates", "place", and "location" (please see paper as part of literature review for more info) as well as graphical presentation of characters in tweets and number of retweets. The data set is further subsetted for tweets that have valid long an lat "coordinates" and for which accurate city names could be retrieved using Photon. The geographical spread of this subset of tweets is graphically presented on a world map. Also is including a list with Top-10 cities i.e. cities from which more than 10 tweets were sent.
