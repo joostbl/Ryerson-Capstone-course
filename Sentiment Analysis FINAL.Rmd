@@ -1,0 +1,157 @@
+---
+title: "Sentiment Analysis FINAL"
+author: "Joost Bloos"
+date: "07/11/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Install packages:
+#Source: https://trinkerrstuff.wordpress.com/my-r-packages/qdap/
+
+#if (!require("pacman")) install.packages("pacman")
+#pacman::p_load(sentimentr, dplyr, magrittr)
+#install.packages("devtools")
+#install_github("trinker/qdapDictionaries")
+#install_github("trinker/qdapRegex")
+#install_github("trinker/qdapTools")
+#install_github("trinker/qdap")
+#install.packages("quanteda")
+#install.packages("sentimentr")
+#install.packages("ndjson")
+#install.packages("NLP")
+#install.packages("dplyr")
+#install.packages("tidyr")
+#install.packages("tm")
+#install.packages("corpus")
+#install.packages("syuzhet")
+
+```
+
+
+```{r}
+library(devtools)
+library(tm)
+library(qdap)
+library(sentimentr)
+library(ndjson)
+library(corpus)
+library(syuzhet)
+library(tidyr)
+library(dplyr)
+library(quanteda)
+
+library(ggplot2)
+
+#a good package, also takes into account  negative words and amplifiers
+#see: http://www.inside-r.org/packages/cran/qdap/docs/polarity
+```
+
+```{r}
+#getwd()
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+```
+
+
+```{r}
+#Read in original data set May 2020
+data_set_may <- read.csv("corona_tweets_59 May 2020", header = T, sep = ",")
+
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+set.seed(1000)
+rawData <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+#write.csv(rawData,'rawData.csv')
+
+str(rawData)
+
+```
+
+```{r}
+#create a corpus:
+importdocs = corpus(rawData, text_field = 'text')
+```
+
+```{r}
+#preprocessing of data
+importdocs <- gsub("'", "", importdocs)  # remove apostrophes
+importdocs <- gsub("[[:punct:]]", " ", importdocs)  # replace punctuation with space
+importdocs <- gsub("[[:cntrl:]]", " ", importdocs)  # replace control characters with space
+importdocs <- gsub("^[[:space:]]+", "", importdocs) # remove whitespace at beginning of documents
+importdocs <- gsub("[[:space:]]+$", "", importdocs) # remove whitespace at end of documents
+importdocs <- tolower(importdocs)
+
+```
+
+
+```{r}
+mycorpus <- get_sentences(importdocs)
+mysentiment <- sentiment(mycorpus)
+mysentiment
+```
+
+```{r}
+# run overall score, result overall neutral to perhaps moderate positive
+summary(mysentiment$sentiment)
+```
+
+```{r}
+#results expressed in histogram
+
+qplot(mysentiment$sentiment,   geom="histogram",binwidth=0.1,main="Review Sentiment Histogram")
+```
+
+```{r}
+#source: https://www.programmingr.com/sentiment-analysis/
+
+#returns the individual words along with their polarity strength and counts.
+t = extract_sentiment_terms(mycorpus) 
+attributes(t)$count
+```
+
+```{r}
+#show positive and negative word use:
+head(t,20)
+```
+
+```{r}
+# The emotion() function returns the rate of emotion per sentence. A data frame is returned by this function and of interest to us are the two columns: emotion type and emotion. Emotion indicates the strength of emotion present in the sentence.
+emotion(mycorpus[1:2])
+```
+
+```{r}
+# graph with emotional valence, what is explanation. Note to self: look up
+plot(mysentiment)
+```
+
+```{r}
+#integrate sentiment score into updated dataset
+sentimentResultMay2020 <- rawData
+sentimentResultMay2020$sentiment_score = mysentiment$sentiment
+str(sentimentResultMay2020)
+```
+
+```{r}
+#identify text for max (positive) sentiment score
+max(mysentiment$sentiment)
+maxSentiment <- sentimentResultMay2020[which.max(sentimentResultMay2020$sentiment_score),]
+maxSentiment$text
+```
+
+```{r}
+#identify text for min sentiment score
+min(mysentiment$sentiment)
+minSentiment <- sentimentResultMay2020[which.min(sentimentResultMay2020$sentiment_score),]
+minSentiment$text
+```
+
+#write sentiment score to original dataset
+write.csv(sentimentResultMay2020,'sentimentResultMay2020.csv')
+
+
+
+
+
