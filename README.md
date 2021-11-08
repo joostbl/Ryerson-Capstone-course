@@ -23,7 +23,7 @@ Note: I was not able to create a base line and run multiple analysis as a result
 
 D) LDA script Josh. This script was put together from various authors following internet research as my initial focus was on answering the research question. With this script, I achieved better interpretable results on terms, after cleansing, and topic relevance. I was however not successful to include a confusion matrix using the caret packaged as I'm not entirely sure how the LDA results are interpreted and flown through the caret package and generate a confusion matrix.
 
-E Sensitivity analysis
+E Sensitiment analysis FINAL, 
 
 
 Note: the scripts presented concentrate on the May 2020 data set. Once the LDA scripted is "debugged" for bigram DTM in file LDAMAY2020, as described above, the September 2021 dataset can be loaded, processed, and output can be compared.
