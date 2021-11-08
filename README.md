@@ -21,9 +21,11 @@ I encountered the following issues (amongst many others):
 
 Note: I was not able to create a base line and run multiple analysis as a result of the issues with the script i.e. n-gram/3-gram, use additional dictionaries, measure impact on baseline by removing stemming, review heatmap, etc. I have however included my own script below as well (D).  
 
-D) LDA script Josh. This script was put together from various authors following internet research as my initial focus was on answering the research question. With this script, I achieved better interpretable results on terms, after cleansing, and topic relevance. I was however not successful to include a confusion matrix using the caret packaged as I'm not entirely sure how the LDA results are interpreted and flown through the caret package and generate a confusion matrix.
+D) LDA script Josh FINAL. This script was put together from various authors following internet research as my initial focus was on answering the research question. With this script, I achieved better interpretable results on terms, after cleansing, and topic relevance. I was however not successful to include a confusion matrix using the caret packaged as I'm not entirely sure how the LDA results are interpreted and flown through the caret package and generate a confusion matrix.
 
-E Sensitiment analysis FINAL, 
+E Sensitiment analysis FINAL, this script analysis the May tweets sample data set by determining sentiment scores of tweets on a scale of positive sentiment rated max 1.0, neutral (-0.25, 0.25) and negative -1.0. 
+
+
 
 
 Note: the scripts presented concentrate on the May 2020 data set. Once the LDA scripted is "debugged" for bigram DTM in file LDAMAY2020, as described above, the September 2021 dataset can be loaded, processed, and output can be compared.
