@@ -1,0 +1,347 @@
+---
+title: "Untitled"
+author: "Joost Bloos"
+date: "08/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+#install.packages("twitteR")
+#if (!require("pacman")) install.packages("pacman")
+#pacman::p_load(sentimentr, dplyr, magrittr)
+#install.packages("emoji")
+#install.packages("rtweet")
+#install.packages("Unicode")
+
+library(dplyr)
+library(sentimentr)
+library(twitteR)
+library(rvest)
+library(emoji)
+
+options(stringsAsFactors = FALSE)
+library(tidyverse)
+library(rtweet)
+library(rvest)
+library(Unicode)
+library(tm)
+
+
+#Sys.setlocale(category = "LC_ALL", locale = "en_US.UTF-8") # could not be honored?
+
+
+#Source: https://cran.r-project.org/web/packages/emoji/emoji.pdf
+#Source: https://www.r-bloggers.com/2017/03/emojis-analysis-in-r/
+#Source: https://github.com/today-is-a-good-day/emojis/blob/master/emoji_analysis.R
+```
+
+
+
+
+
+```{r}
+#getwd()
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+```
+
+
+```{r}
+## ---- utility functions ----
+# this function outputs the emojis found in a string as well as their occurences
+count_matches <- function(string, matchto, description, sentiment = NA) {
+  
+  vec <- str_count(string, matchto)
+  matches <- which(vec != 0)
+  
+  descr <- NA
+  cnt <- NA
+  
+  if (length(matches) != 0) {
+    
+    descr <- description[matches]
+    cnt <- vec[matches]
+    
+  } 
+  
+  df <- data.frame(text = string, description = descr, count = cnt, sentiment = NA)
+  
+  if (!is.na(sentiment) && length(sentiment[matches]) != 0) {
+    
+    df$sentiment <- sentiment[matches]
+    
+  }
+  
+  return(df)
+  
+}
+```
+
+
+
+```{r}
+# this function applies count_matches on a vector of texts and outputs a data.frame
+emojis_matching <- function(texts, matchto, description, sentiment = NA) {
+  
+  texts %>% 
+    map_df(count_matches, 
+           matchto = matchto, 
+           description = description, 
+           sentiment = sentiment)
+  
+}
+```
+
+
+```{r}
+# function that separates capital letters hashtags
+hashgrep <- function(text) {
+  hg <- function(text) {
+    result <- ""
+    while(text != result) {
+      result <- text
+      text <- gsub("#[[:alpha:]]+\\K([[:upper:]]+)", " \\1", text, perl = TRUE)
+    }
+    return(text)
+  }
+  unname(sapply(text, hg))
+}
+```
+
+
+```{r}
+# tweets cleaning pipe
+cleanPosts <- function(text) {
+  clean_texts <- text %>%
+    gsub("<.*>", "", .) %>% # remove emojis
+    gsub("&amp;", "", .) %>% # remove &
+    gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", .) %>% # remove retweet entities
+    gsub("@\\w+", "", .) %>% # remove at people
+    hashgrep %>%
+    gsub("[[:punct:]]", "", .) %>% # remove punctuation
+    gsub("[[:digit:]]", "", .) %>% # remove digits
+    gsub("http\\w+", "", .) %>% # remove html links
+    iconv(from = "latin1", to = "ASCII", sub="") %>% # remove emoji and bizarre signs
+    gsub("[ \t]{2,}", " ", .) %>% # remove unnecessary spaces
+    gsub("^\\s+|\\s+$", "", .) %>% # remove unnecessary spaces
+    tolower
+  return(clean_texts)
+}
+```
+
+
+```{r}
+# function that outputs a df of emojis with their top 5 words (by frequency)
+wordFreqEmojis <- function(df, text = df$text, description = df$description, top = 5) {
+  
+  map_df(unique(description), function(x) {
+    
+    dat <- df %>% 
+      filter(description == x)
+    
+    myCorpus <- Corpus(VectorSource(dat$text)) %>%
+      tm_map(removePunctuation) %>%
+      tm_map(stripWhitespace) %>%
+      tm_map(removeWords, stopwords("english"))
+    
+    dtm <- DocumentTermMatrix(myCorpus)
+    # find the sum of words in each Document
+    rowTotals <- apply(dtm , 1, sum)
+    dtm.new   <- dtm[rowTotals> 0, ]
+    # collapse matrix by summing over columns
+    freq <- colSums(as.matrix(dtm))
+    # create sort order (descending)
+    ord <- order(freq, decreasing = TRUE)
+    
+    list(emoji = rep(x, top), 
+         words = names(freq[ord][1:top]), 
+         frequency = freq[ord][1:top]) 
+    
+  })
+  
+}
+```
+
+
+```{r}
+## ---- setup ----
+# read in emoji dictionary https://raw.githubusercontent.com/today-is-a-good-day/emojis/master/emojis.csv
+
+emDict_raw <- read.csv2("emojis.csv")
+str(emDict_raw)
+
+emDict_raw <- read.csv2("emojis.csv") %>% 
+  select(description = EN, r_encoding = ftu8, unicode)
+```
+
+```{r}
+# plain skin tones
+skin_tones <- c("light skin tone", 
+                "medium-light skin tone", 
+                "medium skin tone",
+                "medium-dark skin tone", 
+                "dark skin tone")
+
+# remove plain skin tones and remove skin tone info in description
+emDict <- emDict_raw %>%
+  # remove plain skin tones emojis
+  filter(!description %in% skin_tones) %>%
+  # remove emojis with skin tones info, e.g. remove woman: light skin tone and only
+  # keep woman
+  filter(!grepl(":", description)) %>%
+  mutate(description = tolower(description)) %>%
+  mutate(unicode = as.u_char(unicode))
+# all emojis with more than one unicode codepoint become NA 
+```
+
+```{r}
+matchto <- emDict$r_encoding
+description <- emDict$description
+```
+
+
+```{r}
+#Read in original data set May 2020
+data_set_may <- read.csv("corona_tweets_59 May 2020", header = T, sep = ",")
+
+```
+
+```{r}
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+set.seed(1000)
+rawData <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+#write.csv(rawData,'rawData.csv')
+#str(rawData)
+```
+
+```{r}
+#using as input the sample of the Data set May : rawData
+
+# convert to a format we can work with (very important!)
+usermedia <- rawData
+usermedia$text <- iconv(usermedia$text, from = "latin1", to = "ascii", sub = "byte")
+
+```
+
+```{r}
+# rank emojis by occurence in data, super basic
+rank <- emojis_matching(usermedia$text, matchto, description) %>% 
+  group_by(description) %>% 
+  summarise(n = sum(count)) %>%
+  arrange(-n)
+head(rank, 25)
+```
+
+
+
+```{r}
+## ---- tweets with most emojis ----
+tweets <- emojis_matching(usermedia$text, matchto, description) %>% 
+  group_by(text) %>% 
+  summarise(n = sum(count, na.rm = TRUE)) %>%
+  # I add the time created because it makes it easiert to look up certain tweets
+  merge(usermedia, by = "text") %>% 
+  select(text, n, created_at) %>%
+  arrange(-n)
+
+head(tweets, 10)
+```
+
+```{r}
+#number of emojis contained in sample:
+sum(tweets$n)
+
+#average number of emojis in sample:
+mean(tweets$n, na.rm = TRUE)
+
+```
+
+```{r}
+# ---- sentiment analysis with emojis ---- 
+# reference website
+url <- "http://kt.ijs.si/data/Emoji_sentiment_ranking/index.html"
+```
+
+```{r}
+# get emoticons
+emojis_raw <- url %>%
+  read_html() %>%
+  html_table() %>%
+  data.frame() %>%
+  select(-Image.twemoji., -Sentiment.bar.c.i..95..)
+names(emojis_raw) <- c("char", "unicode", "occurrences", "position", "negative", 
+                       "neutral", "positive", "sentiment_score", "description", 
+                       "block")
+```
+
+```{r}
+# change numeric unicode to character unicode to be able to match with emDict 
+emojis <- emojis_raw %>%
+  mutate(unicode = as.u_char(unicode)) %>%
+  mutate(description = tolower(description)) 
+
+```
+
+```{r}
+#str(emojis)
+# unicode column is unicode character class
+
+```
+
+```{r}
+# merge with emDict to get encoding
+emojis_merged <- emojis %>%
+  merge(emDict, by = "unicode")
+
+str(emojis_merged)
+
+ emojis %>% filter(!unicode %in% emDict$unicode) %>% View
+
+```
+
+```{r}
+#Now we have a list of emojis with their respective unicode codepoints and sentiment scores. The next step consists of matching sentiments to the tweets.
+
+new_matchto <- emojis_merged$r_encoding
+new_description <- emojis_merged$description.x
+sentiment <- emojis_merged$sentiment_score
+
+sentiments <- emojis_matching(usermedia$text, new_matchto, new_description, sentiment) %>%
+  mutate(sentiment = count * as.numeric(sentiment)) %>%
+  group_by(text) %>% 
+  summarise(sentiment_score = sum(sentiment, na.rm = TRUE))
+
+usermedia_merged <- usermedia %>% 
+  select(text, created_at) %>% 
+  merge(sentiments, by = "text", all.x = TRUE)
+
+head(sentiments)
+head(usermedia_merged)
+
+# some tweets don't have sentiment scores
+# Note that the score of a single tweet is the sum of the sentiment score of all emojis in the tweet. The higher the score, the more positive the tweet. One could put this number in relation to the number of emojis in the tweet or choose a more binary format like “positive” “negative”.
+```
+
+```{r}
+# ---- emojis associated with words in tweets ----
+# tweets
+raw_texts <- emojis_matching(usermedia$text, matchto, description) %>% 
+  select(-sentiment, -count) %>%
+  mutate(text = cleanPosts(text)) %>%
+  filter(text != "") %>% 
+  filter(!is.na(description))
+word_emojis <- wordFreqEmojis(raw_texts, raw_texts$text, raw_texts$description) %>% 
+  filter(!is.na(words))
+
+head(word_emojis,20)
+
+
+```
+
+
