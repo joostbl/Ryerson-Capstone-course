@@ -23,7 +23,7 @@ Note: I was not able to create a base line and run multiple analysis as a result
 
 D) LDA script Josh FINAL. This script was put together from various authors following internet research as my initial focus was on answering the research question. With this script, I achieved better interpretable results on terms, after cleansing, and topic relevance. I was however not successful to include a confusion matrix using the caret packaged as I'm not entirely sure how the LDA results are interpreted and flown through the caret package and generate a confusion matrix.
 
-E Sensitiment analysis FINAL, this script analysis the May tweets sample data set by determining sentiment scores of tweets on a scale of positive sentiment rated max 1.0, neutral (-0.25, 0.25) and negative -1.0. 
+E Sensitiment analysis FINAL added graphs, this script analysis the May tweets sample data set by determining sentiment scores of tweets on a scale of positive sentiment rated max 1.0, neutral (-0.25, 0.25) and negative -1.0. 
 
 
 
