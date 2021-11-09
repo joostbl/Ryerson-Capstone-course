@@ -28,6 +28,9 @@ E) Sensitiment analysis FINAL added graphs, this script provides an analysis of 
 F) Emoji sentiment analysis FINAL, this script provides a sentiment analysis based on emojis i.e. rank emojis by occurence, tweets with most emojis, number and average of emojis in sample data set, sentiment analysis with emojis by assigning a score to a tweet, emojis associated with words in tweets. 
 
 
+G) GloVe simple FINAL, this script is a "simple" application of word embeddings with GloVe algorithm via text2vec. Unfortunately the code: "source("helper_functions.R")" can't find the file and doesn't cast/call itself!!! Not sure what is the issue. I cleared-out the Global Environment, but not sure why this is not working for me. I might need some guidance to resolve this issue.
+
+
 Important Note: the scripts presented concentrate on the May 2020 data set. Once the LDA scripted is "debugged" for bigram DTM in file LDAMAY2020, as described above, the September 2021 dataset can be loaded, processed, and output can be compared. However, I wsn't successful in debugging, as I believe there is an issue with the format the corpus is transformed when pre-processed/cleansed. Reducing the number of pre-processed steps lead to unclear topic latency in teh LDA analysis / graph... I believe further cleansing is needed as the tweet data ($text) is very "sloppy" with all sorts of terms i.e. "http", "&amp", etc.
 
 Important note: I wasn't successful in applying the carnet package to script a confusion matrx to the LDA topic results, so i will need to better understand how to determine precision and recall with a sample size of 1,000 tweets vs 24 docs as per the lab in module 10. 
