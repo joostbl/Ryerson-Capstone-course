@@ -1,0 +1,154 @@
+---
+title: "GloVe"
+author: "Joost Bloos"
+date: "08/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#Simple application of word embeddings with GloVe algorithme
+#Source: https://gist.github.com/bradleyboehmke/74f562b0bea54e9fa1f696ed67ddcb5b
+
+
+#install.packages("keras")
+#install.packages("roxygen2")
+
+library(keras)     # deep learning modeling
+
+library(tidyverse) # various data wrangling & visualization tasks
+library(progress)  # provides progress bar for status updates during long loops
+#library(glue)      # easy print statements
+
+
+```
+
+```{r}
+getwd()
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+```
+
+```{r}
+#Read in original data set May 2020
+data_set_may <- read.csv("corona_tweets_59 May 2020", header = T, sep = ",")
+
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+
+set.seed(1000)
+rawData <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+
+#write.csv(rawData,'rawData.csv')
+#str(rawData)
+```
+
+```{r}
+#I assume the next function is the so-called "helper-function" which doesn't cast itself when it is called in script below this function.
+
+get_embeddings <- function(text) {
+  
+  # Create iterator over tokens
+  tokens <- text2vec::space_tokenizer(text)
+  
+  # Create vocabulary. Terms will be unigrams (simple words).
+  message("Creating vocabulary...")
+  it <- text2vec::itoken(tokens, progressbar = FALSE)
+  vocab <- text2vec::create_vocabulary(it)
+  vocab <- text2vec::prune_vocabulary(vocab, term_count_min = 5L)
+  
+  # Use our filtered vocabulary
+  vectorizer <- text2vec::vocab_vectorizer(vocab)
+  
+  # Use window of 5 for context words
+  message("Creating term-co-occurence matrix...")
+  tcm <- text2vec::create_tcm(it, vectorizer, skip_grams_window = 5L)
+  
+  # Fit the model
+  message("Computing embeddings based on GloVe algorithm...")
+  glove <- text2vec::GlobalVectors$new(
+    word_vectors_size = 50, 
+    vocabulary = vocab, 
+    x_max = 10
+    )
+  wv_main <- glove$fit_transform(tcm, n_iter = 20, convergence_tol = 0.01)
+  wv_context = glove$components
+  wv_main + t(wv_context)
+}
+
+get_similar_words <- function(reference_word, word_embeddings) {
+  
+  # Find closest aligned word embeddings based on cosine similarity
+  tryCatch({
+    word <- word_embeddings[reference_word, , drop = FALSE]
+  },
+    error = function(e) {
+      stop("The supplied word (", word, ") is not part of the created vocabulary.")
+    }
+  )
+  
+  cos_sim <- text2vec::sim2(
+    x = word_embeddings, 
+    y = word, 
+    method = "cosine", 
+    norm = "l2"
+    )
+  
+  head(sort(cos_sim[,1], decreasing = TRUE), 5)
+  
+}
+
+```
+
+```{r}
+# import Tweets
+reviews <- readr::read_lines("rawdata.csv") 
+
+
+#str(reviews)
+#head(reviews)
+
+# download file of 500K+ Amazon reviews
+#url <- "https://snap.stanford.edu/data/finefoods.txt.gz"
+#download.file(url, "finefoods.txt.gz")
+
+# import reviews
+#reviews <- readr::read_lines("finefoods.txt.gz") 
+#str(reviews)
+#head(reviews)
+
+text <- reviews[stringr::str_detect(reviews, "text")] 
+text <- stringr::str_remove_all(text, "text")
+
+# standardize text
+text <- iconv(text, to = "UTF-8")
+text <- tolower(text)
+text <- stringr::str_replace_all(text, "[[:punct:] ]+", " ")
+text <- stringr::str_trim(text)
+
+# helper functions wrapping text2vec
+
+#The helper function doesn't cast/call itself!!! Not sure what is the issue. I cleared-out the Global Environment, but not sure why this is not working for me?
+
+#source("helper_functions.R")
+
+
+# train word embeddings based on GloVe model, this will take
+# a few minutes to train
+
+#word_embeddings <- get_embeddings(text)
+
+# find words with similar embeddings
+#Need to explore this a bit further, perhaps using Covid related topics:
+
+#get_similar_words("disease", word_embeddings)
+#get_similar_words("travel", word_embeddings)
+#get_similar_words("work", word_embeddings)
+```
+
+```
+
+
+
