@@ -1,0 +1,137 @@
+---
+title: "LDA Topic OPtimalization"
+author: "Joost Bloos"
+date: "12/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Source : https://rpubs.com/Argaadya/topic_lda link: https://juliasilge.com/blog/evaluating-stm/
+
+#install.packages("bigrquery")
+#install.packages("furrr")
+#install.packages("future")
+#install.packages("stm")
+
+library(bigrquery)
+library(tidyverse)
+library(tidytext)
+library(furrr)
+library(purrr)
+library(stm)
+
+```
+
+```{r}
+#read data set Tweets May 16, 2020: Covid related hastags as per project document.
+
+data_set_may  <- data.table::fread("corona_tweets_59 May 2020", header = T, encoding = "Latin-1")
+
+glimpse(data_set_may )
+
+head(data_set_may,10)
+```
+
+```{r}
+set.seed(1000)
+sample <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+
+#glimpse(sample )
+#head(sample,10)
+```
+
+```{r}
+text <- sample$text
+text <- as.data.frame(text)
+
+str(text)
+
+hacker_news_raw  <- text
+```
+
+```{r}
+hacker_news_text <- hacker_news_raw %>%
+#  as_tibble() %>%
+#  mutate(title = na_if(title, ""),
+#         text = coalesce(title, text)) %>%
+#  select(-title) %>%
+  mutate(text = str_replace_all(text, "&#x27;|&quot;|&#x2F;", "'"), ## weird encoding
+         text = str_replace_all(text, "<a(.*?)>", " "),             ## links 
+         text = str_replace_all(text, "&gt;|&lt;|&amp;", " "),      ## html yuck
+         text = str_replace_all(text, "&#[:digit:]+;", " "),        ## html yuck
+         text = str_remove_all(text, "<[^>]*>"),                    ## mmmmm, more html yuck
+         postID = row_number()) 
+
+str(hacker_news_text)
+
+```
+
+
+```{r}
+tidy_hacker_news <- hacker_news_text %>%
+  unnest_tokens(word, text, token = "tweets") %>%
+  anti_join(get_stopwords()) %>%
+  filter(!str_detect(word, "[0-9]+")) %>%
+  add_count(word) %>%
+  filter(n > 10) %>%
+  select(-n)
+
+hacker_news_sparse <- tidy_hacker_news %>%
+  count(postID, word) %>%
+  cast_sparse(postID, word, n)
+```
+
+
+
+```{r}
+
+many_models <- data_frame(K = c(3,4,6,8,10)) %>%
+  mutate(topic_model = future_map(K, .options = furrr_options(seed = 123), ~stm(hacker_news_sparse, K = .,
+                                          verbose = FALSE)))
+
+
+
+write_csv(many_models, "optimal topic numbers.csv")
+
+```
+
+
+```{r}
+heldout <- make.heldout(hacker_news_sparse)
+
+k_result <- many_models %>%
+  mutate(exclusivity = map(topic_model, exclusivity),
+         semantic_coherence = map(topic_model, semanticCoherence, hacker_news_sparse),
+         eval_heldout = map(topic_model, eval.heldout, heldout$missing),
+         residual = map(topic_model, checkResiduals, hacker_news_sparse),
+         bound =  map_dbl(topic_model, function(x) max(x$convergence$bound)),
+         lfact = map_dbl(topic_model, function(x) lfactorial(x$settings$dim$K)),
+         lbound = bound + lfact,
+         iterations = map_dbl(topic_model, function(x) length(x$convergence$bound)))
+
+k_result
+```
+
+
+```{r}
+k_result %>%
+  transmute(K,
+            `Lower bound` = lbound,
+            Residuals = map_dbl(residual, "dispersion"),
+            `Semantic coherence` = map_dbl(semantic_coherence, mean),
+            `Held-out likelihood` = map_dbl(eval_heldout, "expected.heldout")) %>%
+  gather(Metric, Value, -K) %>%
+  ggplot(aes(K, Value, color = Metric)) +
+  geom_line(size = 1.5, alpha = 0.7, show.legend = FALSE) +
+  facet_wrap(~Metric, scales = "free_y") +
+  labs(x = "K (number of topics)",
+       y = NULL,
+       title = "Model diagnostics by number of topics",
+       subtitle = "These diagnostics indicate that a good number of topics would be around 8")
+```
+

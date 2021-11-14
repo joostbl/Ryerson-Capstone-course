@@ -1,0 +1,345 @@
+---
+title: "Topic modelling with LDA"
+author: "Joost Bloos"
+date: "09/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+#Source: https://rpubs.com/Argaadya/topic_lda
+
+#install.packages("textmineR")
+#install.packages("stm")
+#install.packages("future")
+#install.packages("magrittr")
+#install.packages("furrr")
+
+# Data Wrangling
+library(tidyverse)
+
+# Text Processing
+library(tm)
+library(corpus)
+library(tidytext)
+library(textclean)
+library(lubridate)
+library(hunspell)
+library(SnowballC)
+library(textmineR)
+library(scales)
+library(magrittr)
+
+# Visualization
+library(ggwordcloud)
+
+# Modeling and Evaluation
+library(randomForest)
+library(e1071)
+library(yardstick)
+
+#optinal # of topics selection
+library(stm)
+library(furrr)
+plan(multiprocess)
+
+options(scipen = 999)
+```
+
+
+```{r}
+
+#getwd()
+
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+
+```
+
+```{r}
+#read data set Tweets May 16, 2020: Covid related hastags as per project document.
+
+data_set_may  <- data.table::fread("corona_tweets_59 May 2020", header = T, encoding = "Latin-1")
+
+glimpse(data_set_may )
+
+head(data_set_may,10)
+
+```
+
+
+
+```{r}
+
+#take a sample of 1,000, set seed to replicate results across several analysis of methods:
+set.seed(1000)
+sample <- data_set_may[sample(nrow(data_set_may), size = 1000), ]
+
+glimpse(sample )
+
+head(sample,10)
+
+```
+
+
+```{r}
+#add index column to file
+sample$V1 <- 1:nrow(sample)
+
+sample$title = sample$id
+
+sample$title = as.character(sample$title)
+
+glimpse(sample)
+
+```
+
+```{r}
+#Text cleansing
+
+covid_clean <- sample %>% 
+   mutate(text_clean = text %>% 
+             replace_non_ascii() %>% 
+             replace_html(symbol = F) %>% # remove html tag
+             str_replace_all("[0-9]", " ") %>% 
+             str_replace_all("[-|]", " ") %>% # replace "-" with space
+             tolower() %>% #lowercase
+             str_remove_all("coronavirus|covid 19|covid|covid19|amp|https") %>%  # remove common words
+             replace_symbol() %>%
+             replace_contraction() %>% 
+             replace_word_elongation() %>%  # lengthen shortened word
+             str_replace_all("[[:punct:]]", " ") %>% # remove punctuation
+             make_plural() %>%
+             str_replace_all(" s ", " ") %>%  
+             str_squish() %>% # remove double whitespace
+             str_trim() # remove whitespace at the start and end of the text
+          )
+
+
+```
+
+
+
+```{r}
+# remaining number of words on each document in our corpus.
+
+document_length <- sapply(strsplit(covid_clean$text, " "), length)
+
+document_length %>% 
+   summary()
+
+```
+
+
+```{r}
+#LDA will works better if the text input has a lot of words inside the sentence. 
+
+covid_clean <- covid_clean %>% 
+   slice(which(document_length > 5))
+
+dim(covid_clean)
+
+glimpse(covid_clean)
+
+```
+
+```{r}
+#tokenize the text and create a Document-Term Matrix (DTM) from our text data. We will also remove any stop words such as the or is since they are irrelevant for this problem. We will also do stem words into their basic form, such as from walking into walk. To get better stemming, we also change all positive terms into positives.
+
+stem_hunspell <- function(term) {
+    # look up the term in the dictionary
+    stems <- hunspell_stem(term)[[1]]
+    
+    if (length(stems) == 0) { # if there are no stems, use the original term
+        stem <- term
+    } else { # if there are multiple stems, use the last one
+        stem <- stems[[length(stems)]]
+    }
+    return(stem)
+}
+
+news_term <- covid_clean %>% 
+   unnest_tokens(output = "word", input = text_clean) %>% 
+   anti_join(stop_words)  %>% 
+   mutate(word = ifelse(word == "positive", "positives", word), 
+          word = text_tokens(word, stemmer = stem_hunspell) %>% as.character() ) %>% 
+   drop_na(word) %>% 
+   count(V1, word)
+```
+
+```{r}
+#transform the data into document-term matrix (DTM). The value inside the matrix represent the term frequency or the number of terms appear inside each document
+
+dtm_news <- news_term %>% 
+   cast_dtm(document = V1, term = word, value = n)
+
+inspect(dtm_news)
+```
+
+
+
+```{r}
+#Remove rare word that occur only in less than 5 documents and also the common words that appear in more than 90% of all documents. This is intended to give us a collections of terms that is common enough and shared by several documents to indicate a shared topics/latent information but also unique enough that it is not shared by all documents.
+
+word_freq <- findFreqTerms(dtm_news, 
+                           lowfreq = 5, #remove rare word that occur only in less than 5 documents
+                           highfreq = nrow(dtm_news)*0.9 #remove common words that appear in more than 90% of all documents. 
+                           )
+
+dtm_news <- dtm_news[ , word_freq]
+dtm_news
+
+#conlusion: number of terms drastically drop by factor 10.
+
+```
+
+
+```{r}
+# LDA model with k = 3 topics. The choice of number of topics is arbitrary, but we will show you how to find the optimal number of topics later. We will use Gibbs-sampling to estimate the parameter using 5000 iterations of sampling and 4000 burn-in iterations. The burn-in iteration means that we only collecting samples starting from iteration of 4000, since the earlier iteration is still unstable and may not reflect the actual distribution of the data.
+
+
+dtm_lda <- Matrix::Matrix(as.matrix(dtm_news), sparse = T)
+
+set.seed(123)
+lda_news <- FitLdaModel(dtm = dtm_lda, 
+                        k = 3, 
+                        iterations = 5000,
+                        burnin = 4000, 
+                        calc_coherence = T
+                        )
+
+glimpse(lda_news)
+
+#some important attribute acquired from the LDA Model:
+
+  #phi : Posterior per-topic-per-word probabilities
+  #theta : Posterior per-document-per-topic probabilities
+  #alpha : Prior per-document-per-topic probabilities
+  #beta : Prior per-document-per-topic probabilities
+  #coherence : The probabilistic coherence of each topic
+  #If a term has a high value of theta, it has a high probability of that term being generated from that topic. This also indicates that the term has a high association toward a certain topic.
+
+```
+
+
+```{r}
+lda_news$theta %>% 
+   head() %>% 
+   as.data.frame() %>% 
+   set_names(paste("Topic", 1:3)) %>% 
+   rownames_to_column("document")  
+```
+
+```{r}
+# LDA assumes that a topic is a mixture of words. The posterior probability for per-topic-per-word assignment is represented by the phi value. The sum of all phi for a topic is 1.
+lda_news$phi %>% 
+   rowSums()
+```
+
+```{r}
+#present top-10 term by topic
+
+GetTopTerms(lda_news$phi, 10) %>% 
+   as.data.frame()
+```
+
+
+```{r}
+news_word_topic <- GetTopTerms(lda_news$phi, 30) %>% 
+   as.data.frame() %>% 
+   set_names(paste("Topic", 1:3))
+
+news_word_topic
+
+```
+
+```{r}
+#present top words in each topic using visualization. Here, we will visualize the top 50 terms in each topics using word cloud.
+
+news_word_topic %>% 
+   rownames_to_column("id") %>%
+   mutate(id = as.numeric(id)) %>% 
+   pivot_longer(-id, names_to = "topic", values_to = "term") %>% 
+   ggplot(aes(label = term, size = rev(id), color = topic, alpha = rev(id))) +
+   geom_text_wordcloud(seed = 123) +
+   facet_wrap(~topic, scales = "free") +
+   scale_alpha_continuous(range = c(0.4, 1)) +
+   scale_color_manual(values = c( "dodgerblue4", "firebrick4", "darkgreen")) +
+   theme_minimal() +
+   theme(strip.background = element_rect(fill = "firebrick"),
+         strip.text.x = element_text(colour = "white"))
+
+
+
+```
+
+
+```{r}
+#acquire the probability of a document belong to certain topics. We will use this metric to check whether our guest about the interpretation of each topic is make sense and if each topic is different enough subjectively.
+
+news_doc_topic <- lda_news$theta %>% 
+   as.data.frame() %>% 
+   rownames_to_column("id") 
+
+news_doc_topic %>% 
+   arrange(desc(t_1)) %>% 
+   left_join(covid_clean %>% 
+                mutate(V1 = as.character(V1)) %>% 
+                select(V1, title, text, text_clean), 
+             by = c("id" = "V1")) %>% 
+   column_to_rownames("id") %>% 
+   select(title, everything()) %>% 
+   head(10)
+
+
+```
+
+
+
+
+```{r}
+#One of the most popular metric to evaluate a topic model is by looking at the topic coherence.By default, the topic coherence only look for the top 5 words of each topic.
+
+lda_news$coherence
+
+```
+
+
+```{r}
+
+lda_model = text2vec::LDA$new(n_topics = 6, doc_topic_prior = 0.1, topic_word_prior = 0.01)
+
+doc_topic_distr = lda_model$fit_transform(x = dtm_lda, n_iter = 1000, 
+                          convergence_tol = 0.001, n_check_convergence = 25, 
+                          progressbar = TRUE)
+
+```
+
+```{r}
+
+#plotting results
+barplot(doc_topic_distr[1, ], xlab = "topic", 
+        ylab = "proportion", ylim = c(0, 1), 
+        names.arg = 1:ncol(doc_topic_distr))
+
+lda_model$get_top_words(n = 6, topic_number = c(1L, 3L, 6L), lambda = 1)
+
+
+lda_model$get_top_words(n = 6, topic_number = c(1L, 3L, 6L), lambda = 0.2)
+
+lda_model$plot()
+
+```
+
+
+
+
+
+
+
+
+
+

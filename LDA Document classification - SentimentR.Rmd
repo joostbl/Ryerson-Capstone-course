@@ -1,0 +1,544 @@
+---
+title: "Document Classification"
+author: "Joost Bloos"
+date: "10/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Source: https://rpubs.com/Argaadya/topic_lda
+
+#install.packages("textmineR")
+#install.packages("dplyr")
+#install.packages("magrittr")
+#install.packages("stringr")
+#install.packages("textclean")
+
+# Data Wrangling
+library(tidyverse)
+library(magrittr)
+library(dplyr)
+library(stringr)
+library(textclean)
+
+# Text Processing
+library(tm)
+library(corpus)
+library(tidytext)
+library(textclean)
+library(lubridate)
+library(hunspell)
+library(SnowballC)
+library(textmineR)
+library(scales)
+library(caret)
+
+# Visualization
+library(ggwordcloud)
+
+# Modeling and Evaluation
+library(randomForest)
+library(e1071)
+library(yardstick)
+
+options(scipen = 999)
+
+```
+
+
+```{r}
+#getwd()
+
+#setwd("C:/Ryerson University - Capstone project/Module 2/EIEEE - Large dataset/Combined")
+
+```
+
+
+```{r}
+# sentiment analysis FINAL script writes a file by adding sentiments scores to the sample.
+
+df_file <- data.table::fread("SentimentResultMay2020.csv")
+#glimpse(df)
+str(df)
+```
+
+```{r}
+#assign sentiment categories:
+
+df <- df_file
+
+df <- df %>% mutate(Sentiment = case_when(sentiment_score >0 ~ 'positive',
+                                 sentiment_score <0 ~ 'negative',
+                                 TRUE ~ 'neutral')
+)
+
+#or use three categories:
+#df <- df %>% mutate(Sentiment = case_when(sentiment_score >= 0.25 ~ 'positive',
+#                                 sentiment_score <= -0.25 ~ 'negative',
+#                                 TRUE ~ 'neutral')
+#)
+
+str(df)
+glimpse(df)
+```
+
+```{r}
+#Delete rows with 0 value in sentiment_score, to create data frame with either positive or negative sentiments:
+
+head(df$Sentiment,50)
+
+length(df$Sentiment)
+
+df <- df[!(df$Sentiment == "neutral"), ]
+
+length(df$Sentiment)
+head(df$Sentiment,50)
+
+```
+
+```{r}
+#rename attribute name to match script
+df$Review = df$text
+
+#subset to only relevant columns
+df <- select(df, Review, Sentiment )
+
+```
+
+
+```{r}
+df_clean <- df %>% 
+   mutate(text_clean = Review %>% 
+             tolower() %>% 
+             replace_html() %>% 
+             replace_word_elongation() %>% 
+             str_replace_all("-", " ") %>% 
+             str_remove_all("[[:punct:]]") %>% 
+             str_remove_all("[[0-9]]") %>% 
+             str_squish() %>% 
+             str_trim())
+
+df_clean %>% head()
+```
+
+```{r}
+# Inspect the summary of the length of each document and the maximum number of words (terms) in a document.
+
+document_length <- sapply(strsplit(df_clean$text_clean, " "), length)
+
+document_length %>% 
+   summary()
+```
+
+```{r}
+# We will only take documents with more than x terms/words. Optional as >5 only reduced by a small amount of terms.
+
+df_clean <- df_clean %>% 
+   slice(which(document_length > 5))
+
+dim(df_clean)
+```
+
+```{r}
+#Cross validation - split the data into the training set (80%) and the testing set (20%). We will also check the class proportion of the target variable in the training set.
+
+set.seed(123)
+index <- sample(nrow(df_clean), nrow(df_clean)*0.8)
+
+data_train <- df_clean[index, ]
+data_test <- df_clean[-index, ]
+
+table(df_clean$Sentiment) %>% prop.table()
+
+
+```
+
+
+```{r}
+
+#Check for class imbalance between the negative and positive sentiment, in that case up sample the minority class first in the training set!
+
+#You need to run this line as it changes the sentiment column header to lower case and format as factor allowing to run random forest on Windows in later code below.
+
+glimpse(data_train)
+
+set.seed(123)
+data_train <- upSample(x = data_train %>% select(-Sentiment), 
+                       y = as.factor(data_train$Sentiment), yname = "sentiment") 
+
+glimpse(data_train)
+
+
+```
+
+```{r}
+#Create the document-term matrix (DTM) for each document. 
+#The term will be a combination of unigram (1-gram) and bigram (2-gram) for each documents.
+
+stem_hunspell <- function(term) {
+    # look up the term in the dictionary
+    stems <- hunspell_stem(term)[[1]]
+    
+    if (length(stems) == 0) { # if there are no stems, use the original term
+        stem <- term
+    } else { # if there are multiple stems, use the last one
+        stem <- stems[[length(stems)]]
+    }
+    return(stem)
+}
+
+train_term <- data_train %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean) %>% 
+   anti_join(stop_words)  %>% 
+   mutate(word = text_tokens(word, stemmer = stem_hunspell) %>% as.character()) %>% 
+   drop_na(word) %>% 
+   count(id, word)
+
+train_bigram <- data_train %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean, token = "ngrams", n = 2) %>% 
+   drop_na(word) %>% 
+   count(id, word)
+
+train_trigram <- data_train %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean, token = "ngrams", n = 3) %>% 
+   drop_na(word) %>% 
+   count(id, word)
+
+test_term <- data_test %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean) %>% 
+   anti_join(stop_words)  %>% 
+   mutate(word = text_tokens(word, stemmer = stem_hunspell) %>% as.character()) %>% 
+   drop_na(word) %>% 
+   count(id, word) 
+
+test_bigram <- data_test %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean, token = "ngrams", n = 2) %>% 
+   drop_na(word) %>% 
+   count(id, word)
+
+test_trigram <- data_test %>% 
+   rownames_to_column("id") %>% 
+   unnest_tokens(output = "word", input = text_clean, token = "ngrams", n = 3) %>% 
+   drop_na(word) %>% 
+   count(id, word)
+
+```
+
+```{r}
+# Here is the resulting DTM from the corpus of text data.
+
+#1-gram training and testing set:
+#dtm_train_review <- train_term %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#dtm_test <- test_term %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#2-gram training and testing set:
+#dtm_train_review <- train_bigram %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#dtm_test <- test_bigram %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#Combined 1 & 2 gram training and testing set:
+#dtm_train_review <- train_term %>% 
+#   bind_rows(train_bigram) %>% 
+ #  cast_dtm(document = id, term = word, value = n)
+
+#dtm_test <- test_term %>% 
+#   bind_rows(test_bigram) %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#3-gram training and testing set:
+#dtm_train_review <- train_trigram %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#dtm_test <- test_trigram %>% 
+#   cast_dtm(document = id, term = word, value = n)
+
+#Combined bi & tri gram training and testing set:
+dtm_train_review <- train_bigram %>% 
+   bind_rows(train_trigram) %>% 
+   cast_dtm(document = id, term = word, value = n)
+
+dtm_test <- test_bigram %>% 
+   bind_rows(test_trigram) %>% 
+   cast_dtm(document = id, term = word, value = n)
+
+inspect(dtm_train_review)
+
+```
+
+```{r}
+
+# Option to continue to reduce the number of terms used by only choose words that appear in at least 5 documents and maximum appear in 80% of all documents. 
+
+#I put all parameters at minimum, review as needed.
+
+word_freq <- findFreqTerms(dtm_train_review, lowfreq =  0, highfreq = nrow(dtm_train_review)*1.0)
+
+dtm_train <- dtm_train_review[ , word_freq ]
+
+inspect(dtm_train)
+
+
+```
+
+```{r}
+#build the LDA topic model for the document-term matrix. We will use number of topic (k) = 50, with #5000 iterations and 4000 burn-in.
+
+#Important:
+#The topic distribution for each document (θ) will be used as the features for the machine learning model. Using only 50 topics, we expect a 93% dimensionality reduction. = 1 - 50 / 741
+
+dtm_lda <- Matrix::Matrix(as.matrix(dtm_train), sparse = T)
+
+set.seed(123)
+lda_review <- FitLdaModel(dtm = dtm_lda, 
+                        k = 50, 
+                        iterations = 5000,
+                        burnin = 4000
+                        )
+
+# Save object to a file
+saveRDS(lda_review, file = "LDA dimensionality reduction.rds")
+
+```
+
+```{r}
+
+# Restore the object - readRDS(file = "my_data.rds")
+
+lda_review <- read_rds("LDA dimensionality reduction.rds")
+
+```
+
+```{r}
+#prepare the features and the target variable of the training set for model fitting
+train_y <- data_train$sentiment[ rownames(lda_review$theta) %>% as.numeric() ]
+
+train_x <- lda_review$theta
+
+```
+
+```{r}
+#Bernoullie Convertion
+#For the conventional naive bayes, we will convert the numerical value (the frequency of each term in each document) into a categorical whether the term is presence in the document or not.
+
+bernoulli_conv <- function(x){
+        x <- as.factor(as.numeric(x > 0))
+}
+
+train_bayes <- Matrix::Matrix(as.matrix(dtm_train), sparse = T)
+
+train_bn <- apply(dtm_train, 2, bernoulli_conv)
+test_bn <- apply(dtm_test, 2, bernoulli_conv)
+
+```
+
+```{r}
+#LDA with Random Forest
+#The random forest model will be trained using 500 trees and mtry parameter of 2. The error rate from the Out of Bag (OOB) observation is around 40% or similar to 60% of accuracy.
+
+library(randomForest)
+
+set.seed(123)
+rf_lda <- randomForest(x = train_x, 
+                       y = train_y, 
+                       ntree = 500, 
+                       mtry = 2)
+
+rf_lda
+
+```
+
+
+```{r}
+# prepare the testing dataset. To get the features of probability distribution of each topic for each document, we ran the topic model on the DTM of the testing set using only 100 iterations and burn-in of 80.
+
+dtm_lda_test <- Matrix::Matrix(as.matrix(dtm_test), sparse = T)
+
+# Get the topic probabilities for each document
+set.seed(123)
+test_x <- predict(lda_review,
+                  newdata = dtm_lda_test,
+                  iterations = 100,
+                  burnin = 80
+                  )
+```
+
+
+```{r}
+# Predict the testing set using the trained model and see the performance via confusion matrix.
+set.seed(123)
+pred_test <- predict(rf_lda, test_x)
+
+pred_prob <-  predict(rf_lda, test_x, type = "prob")
+
+test_y <- data_test$Sentiment[ rownames(dtm_test) %>% as.numeric() ]
+
+pred_lda <- data.frame(predicted = factor(pred_test, levels = c("positive", "negative")),
+                       actual = factor(test_y, levels = c("positive", "negative"))
+                       )
+
+conf_mat(pred_lda, 
+         truth = actual, 
+         estimate = predicted)
+
+```
+
+
+```{r}
+# Translate the confusion matrix into several evaluation matrix, such as accuracy, recall/sensitivity, precision and F1 measure. We also calculate the area under curve (AUC) to check the model sensitivity toward change of classification threshold.
+
+result_lda_rf <- data.frame(
+   accuracy = accuracy_vec( truth = pred_lda$actual, 
+                            estimate = pred_lda$predicted),
+   
+   recall = sens_vec( truth = pred_lda$actual, 
+                      estimate = pred_lda$predicted),
+   
+   precision = precision_vec( truth = pred_lda$actual, 
+                              estimate = pred_lda$predicted),
+   
+   F1 = f_meas_vec(truth = pred_lda$actual,
+                   estimate = pred_lda$predicted),
+   
+   AUC = roc_auc_vec(truth = pred_lda$actual, 
+                     estimate = pred_prob[, 2])
+) %>% 
+   mutate_all(scales::percent, accuracy = 0.01)
+
+result_lda_rf
+
+
+```
+
+```{r}
+# We will feed the same LDA dataset using the Naive Bayes as comparison.
+
+naive_lda <- naiveBayes(x = train_x,
+                        y = train_y)
+
+pred_test <- predict(naive_lda, test_x)
+pred_prob <-  predict(naive_lda, test_x, type = "raw")
+
+pred_lda_bayes <- data.frame(predicted = factor(pred_test, levels = c("positive", "negative")),
+                             actual = factor(test_y, levels = c("positive", "negative"))
+                             )
+
+conf_mat(pred_lda_bayes, 
+         truth = actual, 
+         estimate = predicted)
+
+
+
+```
+
+```{r}
+# run evaluation metrics for the Naive Bayes model on LDA dataset.
+
+result_lda_bayes <- data.frame(
+   accuracy = accuracy_vec( truth = pred_lda_bayes$actual, 
+                            estimate = pred_lda_bayes$predicted),
+   
+   recall = sens_vec( truth = pred_lda_bayes$actual, 
+                      estimate = pred_lda_bayes$predicted),
+   
+   precision = precision_vec( truth = pred_lda_bayes$actual, 
+                              estimate = pred_lda_bayes$predicted),
+   
+   F1 = f_meas_vec(truth = pred_lda_bayes$actual,
+                   estimate = pred_lda_bayes$predicted),
+   
+   AUC = roc_auc_vec(truth = pred_lda_bayes$actual, 
+                     estimate = pred_prob[, 2])
+) %>% 
+   mutate_all(scales::percent, accuracy = 0.01)
+
+result_lda_bayes
+```
+
+```{r}
+#Prep baseline model prior to dimension reduction using LDA
+
+#N-gram with Naive Bayes - we will train a Naive Bayes model on the original document-term matrix dataset that consist of xxx number of terms as a baseline or benchmark model. Since the prediction process of naive bayes is taking too much time, we’ve prepared the prediction result in Rds format.
+
+naive_gram <- naiveBayes(x = train_bn, 
+                         y = train_y)
+
+pred_test_gram <- predict(naive_gram, test_bn)
+pred_prob_gram <-  predict(naive_gram, test_bn, type = "raw")
+
+saveRDS(pred_test_gram, file = "pred_test_gram.rds")
+saveRDS(pred_prob_gram, file = "pred_prob_gram.rds")
+
+```
+
+```{r}
+pred_test_gram <- read_rds("pred_test_gram.Rds")
+pred_prob_gram <- read_rds("pred_prob_gram.Rds")
+
+pred_gram_bayes <- data.frame(predicted = factor(pred_test_gram, levels = c("positive", "negative")),
+                             actual = factor(test_y, levels = c("positive", "negative"))
+                             )
+
+conf_mat(pred_gram_bayes, 
+         truth = actual, 
+         estimate = predicted)
+```
+
+
+```{r}
+#evaluation metrics for the Naive Bayes model on the original dataset.
+
+result_gram_bayes <- data.frame(
+   accuracy = accuracy_vec( truth = pred_gram_bayes$actual, 
+                            estimate = pred_lda_bayes$predicted),
+   
+   recall = sens_vec( truth = pred_gram_bayes$actual, 
+                      estimate = pred_gram_bayes$predicted),
+   
+   precision = precision_vec( truth = pred_gram_bayes$actual, 
+                              estimate = pred_gram_bayes$predicted),
+   
+   F1 = f_meas_vec(truth = pred_gram_bayes$actual,
+                   estimate = pred_gram_bayes$predicted),
+   
+   AUC = roc_auc_vec(truth = pred_gram_bayes$actual, 
+                     estimate = pred_prob_gram[, 2])
+) %>% 
+   mutate_all(scales::percent, accuracy = 0.01)
+
+result_gram_bayes
+
+```
+
+
+```{r}
+#summarize and save results: reminder: save file name first!
+
+
+summary <- result_lda_rf %>% 
+   bind_rows(result_lda_bayes, result_gram_bayes) %>% 
+   mutate(
+      model = c("Random Forest", "Naive Bayes", "Naive Bayes"),
+      method = c("LDA", "LDA", "n-Gram"),
+      `n features` = c( 50, 50, ncol(dtm_train) )
+   ) %>% 
+   select(method, model, everything()) %>% 
+   rename_all(str_to_title) 
+
+#summary
+#write.csv(summary,"Combined 2&3-gram LDA evaluation summary.csv")
+```
+
