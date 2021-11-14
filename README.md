@@ -1,3 +1,42 @@
+New and updated scripts added!
+
+Following the commentary in the 1st submission below, and as per follow-up meeting with instructor, I was able to add LDA evaluation scripts, and combine some of the earlier submitted scripts below, into 3 final scripts on topic modelling with LDA, as follows:
+
+1) Topic-optimal : 
+Objective: determine optimal number of topics within a corpus of tweets. 
+Approach: 
+  Determine optimal number of topics by reviewing: Semantic Coherence, Held-out likelihood, Residuals, lower bound.											
+
+2) LDA Topics Modelling : 
+Objective: vizualize topics and terms based on uni-gram within a corpus of tweets. 
+Approach:
+  Tokenize corpus based on uni-gram terms and optimal number of topics (see, topic-optimal)
+  Fit topic modelling with LDA using Gobbs-sampling and Hunspell stemming
+  Explore and vizualize top-3 topics including terms using word cloud
+
+3) Document classification using Random Forest and Naïve Bayes to fit data from LDA
+Objective: evaluate LDA performance as a  model for dimensional reduction 
+Approach:
+  Perform sensitivity-analysis using sentimentR and assign sensitivity scores to the data set
+  Cross validation and Hunspell stemming: splitting data into a training and testing set
+  Set terms as uni-gram, bi-gram, tri-gram, or a combination of n-grams and evaluate results, as follows:
+    Use Random Forest and Naïve Bayes to fit data from LDA
+    Evaluate confusion matrix for accuracy, recall/sensitivity, precision and F1 measure.
+
+Other remarks:
+
+Constraint: emoij sensitivity analysis yields insufficient tweets after cleansing, matching with dictionary, and filtering out neutral scores. Initial objective was to perform a classification evaluation using emoji based sentiment score vs results from sentiment score using sentimentR. Observations will be mentioned in final paper, just not processed further.
+
+Improvement: data cleansing methodology in scripts is not always applied consistently which may influence results.
+
+Further to explore (but not within current scope of capstone project, due to time limitations..):
+Is document classifiaction performance improved using Blobtext sentiment scores or emoji scores versus sentimentR scores?
+Is document classification performance improved using different dictionaries, sample sizes, or stemming algorithms (Porter)?
+
+Note: the GloVe script has not been debugged and should be dropped from earlier submission.
+
+
+
 # Ryerson-Capstone-course
 Research:
 Covid-19 related topics and sentiments in english Twitter tweets. Compared at beginning of pandemic (May 2020) and more recently (Sep 201).
